@@ -2,9 +2,9 @@ import numpy as np
 import cv2
 from skimage import measure
 from scipy.spatial.distance import cdist
-
 from stuffs.IDSC.shape_context import ShapeContext
 from stuffs.gaussianfield import gaussianfield
+from IDSC import *
 
 class ComponentUtils:
     def __init__(self, dist_per_point=10):
@@ -14,8 +14,8 @@ class ComponentUtils:
         self.min_size = 3
 
         # Descriptor
-        self.shape_descriptor = ShapeContext(nbins_r=5, nbins_theta=12, r_inner=0.125, r_outer=2.)
-        self.dist_per_point = dist_per_point
+        self.shape_descriptor = IDSCDescriptor()
+        # self.dist_per_point = dist_per_point
 
     def __extract_on_color_image(self, input_image):
         b, g, r = cv2.split(input_image)
@@ -122,9 +122,8 @@ class ComponentUtils:
     def calc_feat(self, component_image):
         # component_image is in 0-background, 1-foreground
         # must return the (sampling point locations, feature for each points)
-        points = self.shape_descriptor.get_points_from_img(component_image, self.dist_per_point)
-        feats  = self.shape_descriptor.compute(points)
-
+        # component_image is binary image
+        points, feats = self.shape_descriptor.describe(component_image)
         return (points, feats)
 
     def compare_feats(self, source_components, target_components, threshold=0.2):
@@ -141,17 +140,30 @@ class ComponentUtils:
         source_points, source_feats = source_idsc
         target_points, target_feats = target_idsc
 
-        source_feat = source_feats.flatten().reshape(1,-1)
-        target_feat = target_feats.flatten().reshape(1,-1)
+        # source_feat = source_feats.flatten().reshape(1,-1)
+        # target_feat = target_feats.flatten().reshape(1,-1)
 
-        # find num matching
-        point_dists = cdist(source_feats, target_feats, metric='cosine')
-        n_matching = np.sum(point_dists <= threshold)
+        # get pair matching and cost
+        pair_ids, _, _, _, _, dist_matrix = matching(source_feats, 
+                                                    target_feats, 
+                                                    source_points, 
+                                                    target_points)
 
-        # calculate distance
-        feat_dist = cdist(source_feat, target_feat, metric='cosine')
-        print (feat_dist, n_matching, len(source_points), len(target_points))
-        return feat_dist / (n_matching + 1e-6)
+        n1, n2 = len(source_feats), len(target_feats)
+
+        total_cost = 0
+        for (i1, i2) in pair_ids:
+            total_cost += dist_matrix[i1][i2]
+
+        return total_cost
+        # # find num matching
+        # point_dists = cdist(source_feats, target_feats, metric='cosine')
+        # n_matching = np.sum(point_dists <= threshold)
+
+        # # calculate distance
+        # feat_dist = cdist(source_feat, target_feat, metric='cosine')
+        # print (feat_dist, n_matching, len(source_points), len(target_points))
+        # return feat_dist / (n_matching + 1e-6)
 
 """
 field_solution, inverse_laplacian = gaussianfield.solve(K, labels[observed], observed)
