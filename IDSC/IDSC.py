@@ -99,7 +99,7 @@ def dp_matching(d):
 Main Discriptor
 """
 class IDSCDescriptor:
-    def __init__(self, n_contour_points=300, n_angle_bins=8,
+    def __init__(self, n_contour_points=2, n_angle_bins=8,
                  n_distance_bins=8):
         self.n_contour_points = n_contour_points
         self.n_angle_bins = n_angle_bins
@@ -109,6 +109,7 @@ class IDSCDescriptor:
         self.shortest_path = floyd_warshall
 
     def describe(self, binary):
+        print("Here", binary.shape)
         self.max_distance = self.distance((0, 0), binary.shape)
         contour_points = self._sample_contour_points(binary, self.n_contour_points)
 
@@ -126,7 +127,7 @@ class IDSCDescriptor:
         return x, y
 
     def _sample_contour_points(self, binary, n):
-        im, ct, hi = cv2.findContours(binary, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+        ct, img = cv2.findContours(binary, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
         contour_points = max(ct, key=len)
         # remove second dim
         contour_points = np.reshape(contour_points, (len(contour_points), 2))
@@ -208,7 +209,8 @@ def matching(histo1, histo2, contours1, contours2):
     distance    = calc_cost(histo1, histo2)
 
     scores, pair_ids, perm2s = [], [], []
-    first_ids2 = np.argsort(distance[0])[:8]
+    first_ids2 = np.argsort(distance[0])[:4]
+    distance_res = []
     for first_id2 in first_ids2:
         perm2   = list(range(first_id2, n2)) + list(range(0, first_id2))
         perm2   = np.array(perm2)
@@ -216,6 +218,7 @@ def matching(histo1, histo2, contours1, contours2):
 
         distance_           = calc_cost(histo1, histo2_)
         score, pair_ids_    = dp_matching(distance_)
+        distance_res.append(distance_)
 
         #
         scores      += [score]
@@ -224,12 +227,13 @@ def matching(histo1, histo2, contours1, contours2):
 
     min_id2     = int(np.argmin(scores))
     perm2       = perm2s[min_id2]
+    distance_get = distance_res[min_id2]
     contours2   = contours2[perm2]
     histo2      = histo2[perm2]
     pair_ids    = pair_ids[min_id2]
 
     # Note that histo2 & contours2 may be different from the initialize.
-    return pair_ids, histo1, histo2, contours1, contours2, distance
+    return pair_ids, histo1, histo2, contours1, contours2, distance_get
 
 if __name__ == '__main__':
     im_path1 = "/home/kan/Desktop/cinnamon/active_learning/data/1a.png"

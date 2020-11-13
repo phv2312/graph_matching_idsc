@@ -4,7 +4,7 @@ from skimage import measure
 from scipy.spatial.distance import cdist
 from stuffs.IDSC.shape_context import ShapeContext
 from stuffs.gaussianfield import gaussianfield
-from IDSC import *
+from IDSC.IDSC import IDSCDescriptor, matching, calc_cost
 
 class ComponentUtils:
     def __init__(self, dist_per_point=10):
@@ -155,6 +155,7 @@ class ComponentUtils:
         for (i1, i2) in pair_ids:
             total_cost += dist_matrix[i1][i2]
 
+        total_cost /= len(pair_ids)
         return total_cost
         # # find num matching
         # point_dists = cdist(source_feats, target_feats, metric='cosine')
