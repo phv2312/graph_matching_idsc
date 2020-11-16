@@ -33,51 +33,54 @@ print ('-- visualize sketch mask')
 print ('-- visualize color mask')
 #imgshow(color_info[0])
 
-# if True:
-#     source_info = sketch_info # label
-#     target_info = other_sketch_infos[0] # un-label
-#
-#     source_mask, source_component = source_info
-#     target_mask, target_component = target_info
-#
-#     imgshow(source_component[1]['image'])
-#     imgshow(target_component[1]['image'])
-#
-#     cv2.imwrite("data/1a.png", source_component[1]['image'])
-#     cv2.imwrite("data/1b.png", target_component[1]['image'])
-#     exit()
-#
-#     imgshow(source_component[1]['image'])
-#     imgshow(target_component[4]['image'])
-#     component_utils.compare_feat(source_component[1]['idsc'], target_component[1]['idsc'], threshold=0.2)
-#     component_utils.compare_feat(source_component[1]['idsc'], target_component[4]['idsc'], threshold=0.2)
-#
-#
-#     imgshow(source_mask)
-#     imgshow(target_mask)
-#
-#     # prepare one hot
-#     n_src = len(source_component)
-#     n_tgt = len(target_component)
-#
-#     print ('n_src:', n_src)
-#     print ('n_tgt:', n_tgt)
-#
-#     label = np.zeros(shape=(n_src + n_tgt, n_src), dtype=np.float32)
-#     observed = np.zeros(shape=(n_src + n_tgt,), dtype=np.bool)
-#     for s_i, s_c in enumerate(source_component):
-#         label[s_i][s_i] = 1.
-#         observed[s_i] = True
-#
-#     all_component = source_component + target_component
-#     K_ = component_utils.compare_feats(source_component, target_component, threshold=0.4)
-#     K = component_utils.compare_feats(all_component, all_component, threshold=0.2)
-#     print ('K shape:', K.shape)
-#
-#     label_hat = al_utils.estimate_label(K, labels=label, observed=observed)
-#     print ('label hat:', label_hat, label_hat.shape)
-#
-#     predict_ids = np.argmin(label_hat, axis=-1)
-#     for t_id, s_id in enumerate(predict_ids):
-#         print('pair btw t/s:', (t_id, s_id))
-#         print('pair btw t/s:', (t_id, np.argsort(label_hat[t_id])[::-1]))
+if True:
+    source_info = sketch_info # label
+    target_info = other_sketch_infos[0] # un-label
+
+    source_mask, source_component = source_info
+    target_mask, target_component = target_info
+
+    imgshow(source_mask)
+    imgshow(target_mask)
+
+    imgshow(source_component[3]['image'])
+    imgshow(target_component[16]['image'])
+
+    cv2.imwrite("data/1a.png", source_component[3]['image'])
+    cv2.imwrite("data/16b.png", target_component[16]['image'])
+    exit()
+
+    imgshow(source_component[1]['image'])
+    imgshow(target_component[4]['image'])
+    component_utils._compare_feat(source_component[1]['idsc'], target_component[1]['idsc'], threshold=0.2)
+    component_utils._compare_feat(source_component[1]['idsc'], target_component[4]['idsc'], threshold=0.2)
+
+
+    imgshow(source_mask)
+    imgshow(target_mask)
+
+    # prepare one hot
+    n_src = len(source_component)
+    n_tgt = len(target_component)
+
+    print ('n_src:', n_src)
+    print ('n_tgt:', n_tgt)
+
+    label = np.zeros(shape=(n_src + n_tgt, n_src), dtype=np.float32)
+    observed = np.zeros(shape=(n_src + n_tgt,), dtype=np.bool)
+    for s_i, s_c in enumerate(source_component):
+        label[s_i][s_i] = 1.
+        observed[s_i] = True
+
+    all_component = source_component + target_component
+    K_ = component_utils.compare_feats(source_component, target_component, threshold=0.4)
+    K = component_utils.compare_feats(all_component, all_component, threshold=0.2)
+    print ('K shape:', K.shape)
+
+    label_hat = al_utils.estimate_label(K, labels=label, observed=observed)
+    print ('label hat:', label_hat, label_hat.shape)
+
+    predict_ids = np.argmin(label_hat, axis=-1)
+    for t_id, s_id in enumerate(predict_ids):
+        print('pair btw t/s:', (t_id, s_id))
+        print('pair btw t/s:', (t_id, np.argsort(label_hat[t_id])[::-1]))

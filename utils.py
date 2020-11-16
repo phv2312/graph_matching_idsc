@@ -4,18 +4,25 @@ from skimage import measure
 from scipy.spatial.distance import cdist
 from stuffs.IDSC.shape_context import ShapeContext
 from stuffs.gaussianfield import gaussianfield
-from IDSC.IDSC import IDSCDescriptor, matching, calc_cost
+from IDSC.IDSC import IDSCDescriptor, matching, calc_cost, calc_matching_distance
+
+import time
+
+def calc_softmax(X, dim):
+    x_e = np.exp(X)
+
+    out = x_e / np.sum(x_e, axis=dim, keepdims=True)
+    return out
 
 class ComponentUtils:
-    def __init__(self, dist_per_point=10):
+    def __init__(self, max_contour_points=100):
         # Segmentation
         self.bad_values = [x + 300 * (x + 1) + 300 * 300 * (x + 1) for x in [0, 5, 10, 15, 255]]
         self.min_area = 50
         self.min_size = 3
 
         # Descriptor
-        self.shape_descriptor = IDSCDescriptor()
-        # self.dist_per_point = dist_per_point
+        self.shape_descriptor = IDSCDescriptor(max_contour_points=max_contour_points)
 
     def __extract_on_color_image(self, input_image):
         b, g, r = cv2.split(input_image)
@@ -64,7 +71,7 @@ class ComponentUtils:
                     "coords": region.coords,
                     "bbox": region.bbox
                 }
-                components[index]['idsc'] = self.calc_feat(components[index]['image'])
+                components[index]['idsc'] = self.calc_feat(components[index]['image'].copy())
 
                 mask[region.coords[:, 0], region.coords[:, 1]] = index + 1
                 index += 1
@@ -101,7 +108,7 @@ class ComponentUtils:
                 "coords": region.coords,
                 "bbox": region.bbox
             }
-            components[index]['idsc'] = self.calc_feat(components[index]['image'])
+            components[index]['idsc'] = self.calc_feat(components[index]['image'].copy())
 
             mask[region.coords[:, 0], region.coords[:, 1]] = index + 1
             index += 1
@@ -126,60 +133,46 @@ class ComponentUtils:
         points, feats = self.shape_descriptor.describe(component_image)
         return (points, feats)
 
-    def compare_feats(self, source_components, target_components, threshold=0.2):
+    def compare_feats(self, source_components, target_components, penalty=0.3, alpha=10.):
+        # consesus matching ...
         K = np.zeros(shape=(len(source_components), len(target_components)), dtype=np.float32)
+        K_inv = np.zeros(shape=(len(target_components), len(source_components)), dtype=np.float32)
 
         for s_i, s_component in enumerate(source_components):
             for t_i, t_component in enumerate(target_components):
-                K[s_i, t_i] = self.compare_feat(s_component['idsc'], t_component['idsc'], threshold)
+                k_v, k_v_inv = self._compare_feat(s_component['idsc'], t_component['idsc'], penalty)
+                K[s_i, t_i] = k_v
+                K_inv[t_i, s_i] = k_v_inv
+
+        # convert distance to score
+        K = 1. / (1. + K)
+        K_inv = 1. / (1. + K_inv)
+
+        K = K - np.max(K, axis=1, keepdims=True)
+        K_inv = K_inv - np.max(K_inv, axis=1, keepdims=True)
+
+        K_sm = calc_softmax(alpha * K, dim=1)
+        K_inv_sm = calc_softmax(K_inv, dim=1)
+
+        K = np.sqrt(K_sm * K_inv_sm.T)
 
         return K
 
-    def compare_feat(self, source_idsc, target_idsc, threshold=0.2):
+    def _compare_feat(self, source_idsc, target_idsc, penalty=0.3):
 
-        source_points, source_feats = source_idsc
-        target_points, target_feats = target_idsc
-
-        # source_feat = source_feats.flatten().reshape(1,-1)
-        # target_feat = target_feats.flatten().reshape(1,-1)
+        source_feats, source_points = source_idsc
+        target_feats, target_points = target_idsc
 
         # get pair matching and cost
-        pair_ids, _, _, _, _, dist_matrix = matching(source_feats, 
+        pair_ids, _, _, _, _, dist_matrix = matching(source_feats,
                                                     target_feats, 
                                                     source_points, 
                                                     target_points)
 
-        n1, n2 = len(source_feats), len(target_feats)
+        matching_cost_s2t = calc_matching_distance(dist_matrix, pair_ids, penalty=penalty)
+        matching_cost_t2s = calc_matching_distance(dist_matrix.T, pair_ids=[(t,s) for (s,t) in pair_ids], penalty=penalty)
 
-        total_cost = 0
-        for (i1, i2) in pair_ids:
-            total_cost += dist_matrix[i1][i2]
-
-        total_cost /= len(pair_ids)
-        return total_cost
-        # # find num matching
-        # point_dists = cdist(source_feats, target_feats, metric='cosine')
-        # n_matching = np.sum(point_dists <= threshold)
-
-        # # calculate distance
-        # feat_dist = cdist(source_feat, target_feat, metric='cosine')
-        # print (feat_dist, n_matching, len(source_points), len(target_points))
-        # return feat_dist / (n_matching + 1e-6)
-
-"""
-field_solution, inverse_laplacian = gaussianfield.solve(K, labels[observed], observed)
-class_predictions = np.argmax(field_solution, axis=1)
-
-# compute expected risk for active learning...
-risk = gaussianfield.expected_risk(field_solution, inverse_laplacian)
-
-# get the query index relative to the full dataset
-_risk = 1000 * np.ones(labels.shape[0])
-_risk[~observed] = risk
-query_idx = np.argmin(_risk)
-
-print ('query_idx:', query_idx)
-"""
+        return matching_cost_s2t, matching_cost_t2s
 
 class ALUtils:
     def estimate_risk(self, K, labels, observed):
@@ -197,9 +190,9 @@ class ALUtils:
 
 import matplotlib.pyplot as plt
 def imgshow(im):
-    pass
-    # plt.imshow(im)
-    # plt.show()
+    #pass
+    plt.imshow(im)
+    plt.show()
 
 
 

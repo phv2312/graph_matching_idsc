@@ -3,6 +3,7 @@ from skimage.draw import line as skline
 import numpy as np
 import cv2
 import scipy as sp, scipy.spatial
+from scipy.spatial.distance import cdist
 import matplotlib.pyplot as plt
 
 """
@@ -31,18 +32,17 @@ def calc_cost(histo1, histo2):
         if nh1.shape[0] > nh2.shape[0]:
             nh1, nh2 = nh2, nh1
         nh1 = np.hstack([nh1, np.zeros(nh2.shape[0] - nh1.shape[0])])
-        for k in range(nh1.shape[0]):
-            if nh1[k] + nh2[k] == 0:
-                continue
-            cost += (nh1[k] - nh2[k]) ** 2 / (nh1[k] + nh2[k])
-        return cost / 2.0
+
+        sub_ = np.power(nh1 - nh2, 2.)
+        add_ = nh1 + nh2
+
+        nonzero_ids = np.nonzero(add_)[0]
+        cost = sub_[nonzero_ids] / add_[nonzero_ids]
+
+        return 0.5 * np.sum(cost)
 
     n1, n2 = len(histo1), len(histo2)
-    dists = np.zeros(shape=(n1, n2), dtype=np.float32)
-
-    for i1 in range(n1):
-        for i2 in range(n2):
-            dists[i1, i2] = shape_context_cost(histo1[i1], histo2[i2])
+    dists = cdist(histo1, histo2, metric=lambda e1, e2: shape_context_cost(e1, e2))
 
     return dists
 
@@ -99,9 +99,8 @@ def dp_matching(d):
 Main Discriptor
 """
 class IDSCDescriptor:
-    def __init__(self, n_contour_points=2, n_angle_bins=8,
-                 n_distance_bins=8):
-        self.n_contour_points = n_contour_points
+    def __init__(self, max_contour_points=100, n_angle_bins=8, n_distance_bins=8):
+        self.max_contour_points = max_contour_points
         self.n_angle_bins = n_angle_bins
         self.n_distance_bins = n_distance_bins
 
@@ -109,13 +108,12 @@ class IDSCDescriptor:
         self.shortest_path = floyd_warshall
 
     def describe(self, binary):
-        print("Here", binary.shape)
         self.max_distance = self.distance((0, 0), binary.shape)
-        contour_points = self._sample_contour_points(binary, self.n_contour_points)
+        contour_points = self._sample_contour_points(binary, self.max_contour_points)
 
         if len(contour_points) == 0:
             print('contours missing in IDSC')
-            return np.zeros(self.n_contour_points)
+            return np.zeros(self.max_contour_points)
 
         dist_matrix = self._build_distance_matrix(binary, contour_points)
         context = self._build_shape_context(dist_matrix, contour_points)
@@ -127,12 +125,21 @@ class IDSCDescriptor:
         return x, y
 
     def _sample_contour_points(self, binary, n):
-        ct, img = cv2.findContours(binary, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+        if cv2.__version__ == '3.1.0':
+            ct, img = cv2.findContours(binary, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)[1:]
+        else:
+            ct, img = cv2.findContours(binary, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+
         contour_points = max(ct, key=len)
         # remove second dim
         contour_points = np.reshape(contour_points, (len(contour_points), 2))
         # sample n points
-        idx = np.linspace(0, len(contour_points) - 1, num=n).astype(np.int)
+        num_samples = len(contour_points) // 2
+        num_samples = max(1, num_samples)
+        num_samples = min(num_samples, self.max_contour_points)
+
+        idx = np.linspace(0, len(contour_points) - 1, num=num_samples).astype(np.int)
+
         return contour_points[idx]
 
     def _build_distance_matrix(self, binary, contour_points):
@@ -210,15 +217,16 @@ def matching(histo1, histo2, contours1, contours2):
 
     scores, pair_ids, perm2s = [], [], []
     first_ids2 = np.argsort(distance[0])[:4]
-    distance_res = []
+    distances = []
     for first_id2 in first_ids2:
         perm2   = list(range(first_id2, n2)) + list(range(0, first_id2))
         perm2   = np.array(perm2)
         histo2_ = histo2[perm2]
 
         distance_           = calc_cost(histo1, histo2_)
+
         score, pair_ids_    = dp_matching(distance_)
-        distance_res.append(distance_)
+        distances.append(distance_)
 
         #
         scores      += [score]
@@ -227,23 +235,40 @@ def matching(histo1, histo2, contours1, contours2):
 
     min_id2     = int(np.argmin(scores))
     perm2       = perm2s[min_id2]
-    distance_get = distance_res[min_id2]
+    distance    = distances[min_id2]
     contours2   = contours2[perm2]
     histo2      = histo2[perm2]
     pair_ids    = pair_ids[min_id2]
 
     # Note that histo2 & contours2 may be different from the initialize.
-    return pair_ids, histo1, histo2, contours1, contours2, distance_get
+    return pair_ids, histo1, histo2, contours1, contours2, distance
+
+def calc_matching_distance(distance, pair_ids, penalty=0.3):
+    #
+    n_s, n_t = distance.shape[:2]
+    matching_cost = 0.
+
+    pair_ids_dict = {s:t for s,t in pair_ids}
+    for s_i in range(n_s):
+        if s_i in pair_ids_dict:
+            t_i = pair_ids_dict[s_i]
+            matching_cost += distance[s_i, t_i]
+        else:
+            matching_cost += penalty
+
+    matching_cost /= len(pair_ids_dict)
+    return matching_cost
 
 if __name__ == '__main__':
-    im_path1 = "/home/kan/Desktop/cinnamon/active_learning/data/1a.png"
-    im_path2 = "/home/kan/Desktop/cinnamon/active_learning/data/1b.png"
+    im_path1 = "/home/kan/Desktop/cinnamon/active_learning/experiments/result_matching/processed_suneo2-processed_suneo1/source/s1.png"
+
+    im_path2 = "/home/kan/Desktop/cinnamon/active_learning/experiments/result_matching/processed_suneo2-processed_suneo1/target/t7.png"
 
     im1 = cv2.imread(im_path1)
     im2 = cv2.imread(im_path2)
     im_bin1 = to_binary(im_path1)
     im_bin2 = to_binary(im_path2)
-    idsc_descriptor = IDSCDescriptor(n_contour_points=100,
+    idsc_descriptor = IDSCDescriptor(max_contour_points=100,
                                      n_angle_bins=8,
                                      n_distance_bins=8)
 
@@ -263,7 +288,14 @@ if __name__ == '__main__':
     debug_im = np.concatenate([im1, im2], axis=1)
     offset_x = w1
 
-    pair_ids, histo1, histo2, contours1, contours2, _ = matching(histo1, histo2, contours1, contours2)
+    pair_ids, histo1, histo2, contours1, contours2, distance = matching(histo1, histo2, contours1, contours2)
+    matching_cost_s2t = calc_matching_distance(distance, pair_ids, 0.3)
+    matching_cost_t2s = calc_matching_distance(distance.T, pair_ids=[(t,s) for (s,t) in pair_ids], penalty=0.3)
+
+    print ('n matching point:', len(pair_ids))
+    print ('matching cost between two shapes:', matching_cost_s2t, matching_cost_t2s)
+
+    # visualize
     for (i1, i2) in pair_ids:
         _debug_im = debug_im.copy()
 
