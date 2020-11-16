@@ -1,12 +1,9 @@
 import numpy as np
 import cv2
 from skimage import measure
-from scipy.spatial.distance import cdist
-from stuffs.IDSC.shape_context import ShapeContext
 from stuffs.gaussianfield import gaussianfield
-from IDSC.IDSC import IDSCDescriptor, matching, calc_cost, calc_matching_distance
+from IDSC.IDSC import IDSCDescriptor, matching, calc_matching_distance
 
-import time
 
 def calc_softmax(X, dim):
     x_e = np.exp(X)
