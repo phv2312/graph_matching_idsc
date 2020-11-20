@@ -52,8 +52,8 @@ if True:
 
     imgshow(source_component[1]['image'])
     imgshow(target_component[4]['image'])
-    component_utils._compare_feat(source_component[1]['idsc'], target_component[1]['idsc'], threshold=0.2)
-    component_utils._compare_feat(source_component[1]['idsc'], target_component[4]['idsc'], threshold=0.2)
+    component_utils._compare_feat_single(source_component[1]['idsc'], target_component[1]['idsc'], threshold=0.2)
+    component_utils._compare_feat_single(source_component[1]['idsc'], target_component[4]['idsc'], threshold=0.2)
 
 
     imgshow(source_mask)

@@ -22,7 +22,7 @@ def solve(W, labels, observed):
     Follow equation 5 from the ICML conference paper instead
 
     Args:
-        W: (n, n) matrix of edge weights
+        W: (n, n) matrix of edge weights, W has to be symmetric, and all entries has to be non-negative
         labels: (n_observed, n_classes) class label array (one-hot encoding)
         observed: n-element indicator vector for the observed datapoints
 
@@ -45,7 +45,6 @@ def solve(W, labels, observed):
     field = laplacian_uu_inv.dot(W_ul).dot(labels)
 
     return field, laplacian_uu_inv
-
 
 def expected_risk(field, Linv):
     """ Compute the expected risk of the classifier f+(k), i.e. after adding each potential query k

@@ -1,25 +1,45 @@
 import numpy as np
 import cv2
 from skimage import measure
-from stuffs.gaussianfield import gaussianfield
-from IDSC.IDSC import IDSCDescriptor, matching, calc_matching_distance
+from libs.gaussianfield import gaussianfield
+from libs.feature_extract.IDSC import IDSCDescriptor, matching, calc_matching_distance
+from scipy.spatial.distance import cdist
+from functools import partial
+import multiprocessing
+import time
 
+MULTI_PROCESS = True
 
-def calc_softmax(X, dim):
-    x_e = np.exp(X)
-
+def calc_softmax(X, dim, alpha):
+    X_ = X - np.max(X, dim, keepdims=True)
+    x_e = np.exp(alpha * X_)
     out = x_e / np.sum(x_e, axis=dim, keepdims=True)
     return out
 
+def _calc_distance_single(f1, f2, min_matching_threshold, penalty):
+    feats1, points1 = f1[:, :-2], f1[:, -2:]
+    feats2, points2 = f2[:, :-2], f2[:, -2:]
+
+    pair_ids, _, _, _, _, dist_matrix = matching(feats1,
+                                                 feats2,
+                                                 points1,
+                                                 points2,
+                                                 min_threshold=min_matching_threshold)
+
+    matching_cost_s2t = calc_matching_distance(dist_matrix, pair_ids, penalty=penalty)
+
+    return matching_cost_s2t, len(pair_ids)
+
+
 class ComponentUtils:
-    def __init__(self, max_contour_points=100):
+    def __init__(self, max_contour_points=100, n_angle_bins=8, n_distance_bins=8):
         # Segmentation
         self.bad_values = [x + 300 * (x + 1) + 300 * 300 * (x + 1) for x in [0, 5, 10, 15, 255]]
         self.min_area = 50
         self.min_size = 3
 
         # Descriptor
-        self.shape_descriptor = IDSCDescriptor(max_contour_points=max_contour_points)
+        self.shape_descriptor = IDSCDescriptor(max_contour_points, n_angle_bins, n_distance_bins)
 
     def __extract_on_color_image(self, input_image):
         b, g, r = cv2.split(input_image)
@@ -66,7 +86,8 @@ class ComponentUtils:
                     "image": cv2.copyMakeBorder(region.image.astype(np.uint8) * 255, 5, 5, 5, 5, cv2.BORDER_CONSTANT, value=0),
                     "label": index + 1,
                     "coords": region.coords,
-                    "bbox": region.bbox
+                    "bbox": region.bbox,
+                    "mask": index + 1
                 }
                 components[index]['idsc'] = self.calc_feat(components[index]['image'].copy())
 
@@ -103,7 +124,8 @@ class ComponentUtils:
                 "image": cv2.copyMakeBorder(region.image.astype(np.uint8) * 255, 5, 5, 5, 5, cv2.BORDER_CONSTANT, value=0),
                 "label": index + 1,
                 "coords": region.coords,
-                "bbox": region.bbox
+                "bbox": region.bbox,
+                "mask": index + 1
             }
             components[index]['idsc'] = self.calc_feat(components[index]['image'].copy())
 
@@ -130,46 +152,72 @@ class ComponentUtils:
         points, feats = self.shape_descriptor.describe(component_image)
         return (points, feats)
 
-    def compare_feats(self, source_components, target_components, penalty=0.3, alpha=10.):
-        # consesus matching ...
-        K = np.zeros(shape=(len(source_components), len(target_components)), dtype=np.float32)
-        K_inv = np.zeros(shape=(len(target_components), len(source_components)), dtype=np.float32)
+    def compare_feats_consensus(self, source_components, target_components, penalty=0.3, min_threshold_area=0.35):
+        """
+        return matrix k: of size (src, tgt), which means, for each source, find target
+        """
 
-        for s_i, s_component in enumerate(source_components):
-            for t_i, t_component in enumerate(target_components):
-                k_v, k_v_inv = self._compare_feat(s_component['idsc'], t_component['idsc'], penalty)
-                K[s_i, t_i] = k_v
-                K_inv[t_i, s_i] = k_v_inv
+        #
+        K1, (K2, K2_min, K2_max) = \
+            self.compare_feats(source_components, target_components, penalty, min_threshold_area) # (s,t)
+        K1_,(K2_, K2_min_, K2_max_) = \
+            self.compare_feats(target_components, source_components, penalty, min_threshold_area) # (t,c)
 
-        # convert distance to score
-        K = 1. / (1. + K)
-        K_inv = 1. / (1. + K_inv)
+        #
+        K1 = 1 / (1 + K1)
+        K1_ = 1 / (1 + K1_)
 
-        K = K - np.max(K, axis=1, keepdims=True)
-        K_inv = K_inv - np.max(K_inv, axis=1, keepdims=True)
+        alpha1, alpha1_ = 1. ,1.
+        K1_ = calc_softmax(K1_.T, dim=1, alpha=alpha1)
+        K1  = calc_softmax(K1, dim=1, alpha=alpha1_)
+        K1  = K1 * K1_
 
-        K_sm = calc_softmax(alpha * K, dim=1)
-        K_inv_sm = calc_softmax(K_inv, dim=1)
+        #
+        K2  = np.sqrt(K2 * K2_.T)
 
-        K = np.sqrt(K_sm * K_inv_sm.T)
+        #
+        K2_min = np.sqrt(K2_min * K2_min_.T)
 
-        return K
+        #
+        K2_max = np.sqrt(K2_max * K2_max_.T)
 
-    def _compare_feat(self, source_idsc, target_idsc, penalty=0.3):
+        return K1, (K2, K2_min, K2_max)
 
-        source_feats, source_points = source_idsc
-        target_feats, target_points = target_idsc
+    def compare_feats(self, source_components, target_components, penalty=0.3, min_threshold_area=0.35):
+        def _get_feature(c):
+            feats, points = c['idsc']
+            return np.concatenate([feats, points], axis=1)
 
-        # get pair matching and cost
-        pair_ids, _, _, _, _, dist_matrix = matching(source_feats,
-                                                    target_feats, 
-                                                    source_points, 
-                                                    target_points)
+        source_feats = np.array([_get_feature(c) for c in source_components], dtype=np.object)
+        target_feats = np.array([_get_feature(c) for c in target_components], dtype=np.object)
+        custom_distance = partial(_calc_distance_single, min_matching_threshold=min_threshold_area, penalty=penalty)
 
-        matching_cost_s2t = calc_matching_distance(dist_matrix, pair_ids, penalty=penalty)
-        matching_cost_t2s = calc_matching_distance(dist_matrix.T, pair_ids=[(t,s) for (s,t) in pair_ids], penalty=penalty)
+        all_ids = [(si,ti) for si in range(source_feats.shape[0]) for ti in range(target_feats.shape[0])]
 
-        return matching_cost_s2t, matching_cost_t2s
+        if MULTI_PROCESS:
+            with multiprocessing.Pool(processes=8) as p:
+                result = p.starmap(custom_distance, [(source_feats[si], target_feats[ti]) for (si, ti) in all_ids])
+        else:
+            result = [custom_distance(source_feats[si], target_feats[ti]) for (si, ti) in all_ids]
+
+        result = np.array(result)
+        K = np.zeros(shape=(source_feats.shape[0], target_feats.shape[0], 2), dtype=np.float32)
+
+        s_ids = [ids[0] for ids in all_ids]
+        t_ids = [ids[1] for ids in all_ids]
+        K[s_ids, t_ids] = result
+
+        K1 = K[:,:,0].astype(np.float32) # distance
+        K2 = K[:,:,1].astype(np.int32) # n_matching point
+
+        K3 = K2 / np.array([len(f) for f in source_feats]).reshape(-1, 1)
+        K4 = K2 / np.array([len(f) for f in target_feats]).reshape(1, -1)
+
+        K21 = np.stack([K3, K4], axis=-1)
+        K2_max = np.max(K21, axis=-1)
+        K2_min = np.min(K21, axis=-1)
+
+        return K1, (K2, K2_min, K2_max)
 
 class ALUtils:
     def estimate_risk(self, K, labels, observed):

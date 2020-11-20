@@ -1,3 +1,4 @@
+import os
 from scipy.sparse.csgraph import floyd_warshall
 from skimage.draw import line as skline
 import numpy as np
@@ -138,6 +139,7 @@ class IDSCDescriptor:
         num_samples = max(1, num_samples)
         num_samples = min(num_samples, self.max_contour_points)
 
+        #num_samples = 70 # fixed here
         idx = np.linspace(0, len(contour_points) - 1, num=num_samples).astype(np.int)
 
         return contour_points[idx]
@@ -211,12 +213,12 @@ class IDSCDescriptor:
 
         return np.array(histogram)
 
-def matching(histo1, histo2, contours1, contours2):
-    n1, n2      = len(histo1), len(histo2)
-    distance    = calc_cost(histo1, histo2)
+def matching(histo1, histo2, contours1, contours2, min_threshold=0.35):
+    n1, n2       = len(histo1), len(histo2)
+    org_distance = calc_cost(histo1, histo2)
 
     scores, pair_ids, perm2s = [], [], []
-    first_ids2 = np.argsort(distance[0])[:4]
+    first_ids2 = np.argsort(org_distance[0])[:8]
     distances = []
     for first_id2 in first_ids2:
         perm2   = list(range(first_id2, n2)) + list(range(0, first_id2))
@@ -235,13 +237,18 @@ def matching(histo1, histo2, contours1, contours2):
 
     min_id2     = int(np.argmin(scores))
     perm2       = perm2s[min_id2]
-    distance    = distances[min_id2]
-    contours2   = contours2[perm2]
-    histo2      = histo2[perm2]
     pair_ids    = pair_ids[min_id2]
 
-    # Note that histo2 & contours2 may be different from the initialize.
-    return pair_ids, histo1, histo2, contours1, contours2, distance
+    # re-permute
+    new_pair_ids = []
+    for (org_si, ti) in pair_ids:
+        org_ti = perm2[ti]
+
+        if org_distance[org_si, org_ti] > min_threshold: continue
+        new_pair_ids += [(org_si, org_ti)]
+
+    # note that histo2 & contours2 may be different from the initialize.
+    return new_pair_ids, histo1, histo2, contours1, contours2, org_distance
 
 def calc_matching_distance(distance, pair_ids, penalty=0.3):
     #
@@ -249,6 +256,7 @@ def calc_matching_distance(distance, pair_ids, penalty=0.3):
     matching_cost = 0.
 
     pair_ids_dict = {s:t for s,t in pair_ids}
+
     for s_i in range(n_s):
         if s_i in pair_ids_dict:
             t_i = pair_ids_dict[s_i]
@@ -256,13 +264,21 @@ def calc_matching_distance(distance, pair_ids, penalty=0.3):
         else:
             matching_cost += penalty
 
-    matching_cost /= len(pair_ids_dict)
+    matching_cost /= (1e-6 + len(pair_ids_dict))
     return matching_cost
 
 if __name__ == '__main__':
-    im_path1 = "/home/kan/Desktop/cinnamon/active_learning/experiments/result_matching/processed_suneo2-processed_suneo1/source/s1.png"
+    im_path1 = "/home/kan/Desktop/cinnamon/active_learning/experiments/matching_with_idsc/output/processed_suneo3-processed_suneo4/source/s1.png"
+    im_path2 = "/home/kan/Desktop/cinnamon/active_learning/experiments/matching_with_idsc/output/processed_suneo3-processed_suneo4/target/t4.png"
 
-    im_path2 = "/home/kan/Desktop/cinnamon/active_learning/experiments/result_matching/processed_suneo2-processed_suneo1/target/t7.png"
+    # swap
+    if True:
+        im_tmp = im_path1
+        im_path1 = im_path2
+        im_path2 = im_tmp
+
+    print (os.path.basename(im_path1), os.path.basename(im_path2))
+
 
     im1 = cv2.imread(im_path1)
     im2 = cv2.imread(im_path2)
@@ -288,16 +304,28 @@ if __name__ == '__main__':
     debug_im = np.concatenate([im1, im2], axis=1)
     offset_x = w1
 
-    pair_ids, histo1, histo2, contours1, contours2, distance = matching(histo1, histo2, contours1, contours2)
+    s2t_results = matching(histo1, histo2, contours1, contours2, min_threshold=0.25)
+    t2s_results = matching(histo2, histo1, contours2, contours1, min_threshold=0.25)
+
+    s2t_pair, s2t_distance = s2t_results[0], s2t_results[-1]
+    t2s_pair, t2s_distance = t2s_results[0], t2s_results[-1]
+    s2t_pair_inv = [(s, t) for (t, s) in t2s_pair]
+    pair_ids = list(set(s2t_pair + s2t_pair_inv))
+    pair_ids = list(sorted(pair_ids, key=lambda e: e[0]))[::-1]
+    distance = s2t_distance
+
     matching_cost_s2t = calc_matching_distance(distance, pair_ids, 0.3)
-    matching_cost_t2s = calc_matching_distance(distance.T, pair_ids=[(t,s) for (s,t) in pair_ids], penalty=0.3)
+    matching_cost_t2s = calc_matching_distance(distance.T, pair_ids=[(t,s) for (s,t) in pair_ids], penalty=0.)
 
     print ('n matching point:', len(pair_ids))
     print ('matching cost between two shapes:', matching_cost_s2t, matching_cost_t2s)
+    print ('matching cost symetry:', float(np.mean([distance[s,t] for (s,t) in pair_ids])))
 
     # visualize
+
     for (i1, i2) in pair_ids:
         _debug_im = debug_im.copy()
+        _d = distance[i1, i2]
 
         p = contours1[i1]
         q = contours2[i2]
@@ -309,5 +337,7 @@ if __name__ == '__main__':
         cv2.circle(_debug_im, (offset_x + xq, yq), radius=2, color=(255, 0, 0), thickness=2)
         cv2.line(_debug_im, (xp, yp), (offset_x + xq, yq), color=(0, 255, 0), thickness=1)
 
+        print ('dist btw %d-%d is %.3f:', (i1, i2, _d))
         plt.imshow(_debug_im)
         plt.show()
+        cv2.imwrite("%d_%d.png" % (i1, i2), _debug_im)

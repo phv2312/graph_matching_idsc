@@ -55,6 +55,19 @@ def process_list_point(list_point):
     list_point = list_point[:, :2]
     return list_point
 
+def debug_each_component_v2(src_mask_rgb, tgt_mask_rgb, source_component, target_component, vis_path):
+    source_coords = source_component['coords']
+    target_coords = target_component['coords']
+
+    src_mask_rgb[source_coords[:,0], source_coords[:,1]] = (255,0,0)
+    tgt_mask_rgb[target_coords[:,0], target_coords[:,1]] = (255,0,0)
+
+    dsize = (200, 300)
+    debug_images = [cv2.resize(src_mask_rgb, dsize, interpolation=cv2.INTER_NEAREST),
+                    cv2.resize(tgt_mask_rgb, dsize, interpolation=cv2.INTER_NEAREST)]
+
+    debug_image = np.concatenate(debug_images, axis=1)
+    cv2.imwrite(vis_path, debug_image)
 
 def debug_each_component(src_id, tar_id, src_component, tar_component, src_img, tar_img, vis_folder_pair):
     src_list_points = process_list_point(src_component["coords"])
