@@ -8,7 +8,7 @@ al_utils = ALUtils()
 component_utils = ComponentUtils(dist_per_point=15)
 
 #
-image_dir = "./suneo_image"
+image_dir = "data/suneo_image"
 sketch_names = ["processed_suneo2.png", "processed_suneo1.png"]
 color_name   = "processed_suneo2_color.png"
 

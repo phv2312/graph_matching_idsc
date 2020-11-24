@@ -1,8 +1,10 @@
 from datetime import datetime
 import cv2
 import time
-from utils import ComponentUtils
+from utils import ComponentUtils, imgshow
 from experiments.matching_with_idsc._vis_utils import *
+
+CONSENSUS = False
 
 def find_target_candidate(source_components, target_components, threshold_distance=50):
     s2t_candidates = {}
@@ -20,6 +22,9 @@ def find_target_candidate(source_components, target_components, threshold_distan
 
     return s2t_candidates
 
+def check_symmetric(a, rtol=1e-05, atol=1e-08):
+    return np.allclose(a, a.T, rtol=rtol, atol=atol)
+
 def matching_pair(source_im_path, target_im_path, source_mode, target_mode):
     # initialize modules
     assert source_mode in ['sketch', 'color']
@@ -35,7 +40,7 @@ def matching_pair(source_im_path, target_im_path, source_mode, target_mode):
     os.makedirs(vis_target_folder, exist_ok=True)
     os.makedirs(vis_matching_folder, exist_ok=True)
 
-    component_utils = ComponentUtils(max_contour_points=100)
+    component_utils = ComponentUtils(max_contour_points=50, n_angle_bins=9, n_distance_bins=9)
 
     #
     source_read_mode = cv2.IMREAD_COLOR if source_mode != 'sketch' else cv2.IMREAD_GRAYSCALE
@@ -51,19 +56,32 @@ def matching_pair(source_im_path, target_im_path, source_mode, target_mode):
     source_mask_rgb = cv2.imread(source_im_path)
     target_mask_rgb = cv2.imread(target_im_path)
 
+    print ('source')
+    imgshow(source_mask)
+
+    print ('target')
+    imgshow(target_mask)
+
     print ('>> on comparing features ...')
     s_time = time.time()
-    dist_mat, matching_info = component_utils.compare_feats_consensus(target_components, source_components,
-                                                penalty=0.7, min_threshold_area=0.2)
-    matching_mat, matching_min, matching_max = matching_info
-    max_src_ids = np.argsort(-dist_mat, 1) # for each target find the corresponding source
+
+    dist_mat, matching_info = component_utils.compare_feats(target_components, source_components,
+                                                penalty=0.3, min_threshold_area=0.35)
+    if CONSENSUS:
+
+        dist_mat_inv, matching_info_inv = component_utils.compare_feats(source_components, target_components,
+                                                                        penalty=0.3, min_threshold_area=0.35)
+        dist_mat = np.sqrt(dist_mat * dist_mat_inv.T)
+
+    #matching_mat, matching_min, matching_max = matching_info
+    max_src_ids = np.argsort(dist_mat, 1) # for each target find the corresponding source
     print ('matching take:', time.time() - s_time)
 
     #
-    t2s_candidates = find_target_candidate(target_components, source_components, threshold_distance=70)
+    t2s_candidates = find_target_candidate(target_components, source_components, threshold_distance=150)
     print ('source_component:', len(source_components))
     print ('target_component:', len(target_components))
-    print ('matching_min:', matching_min.shape)
+    #print ('matching_min:', matching_min.shape)
 
     #
     for c_id, c in enumerate(target_components):
@@ -87,8 +105,8 @@ def matching_pair(source_im_path, target_im_path, source_mode, target_mode):
     print ('finish all')
 
 if __name__ == "__main__":
-    source_image_path = "../../suneo_image/processed_suneo1.png"
-    target_image_path = "../../suneo_image/processed_suneo2.png"
+    source_image_path = "../../data/nobita_image/nobita1.png"
+    target_image_path = "../../data/nobita_image/nobita2.png"
 
     #
     matching_pair(source_image_path, target_image_path, source_mode='sketch', target_mode='sketch')

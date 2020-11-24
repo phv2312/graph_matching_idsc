@@ -32,7 +32,7 @@ def _calc_distance_single(f1, f2, min_matching_threshold, penalty):
 
 
 class ComponentUtils:
-    def __init__(self, max_contour_points=100, n_angle_bins=8, n_distance_bins=8):
+    def __init__(self, max_contour_points=50, n_angle_bins=8, n_distance_bins=8):
         # Segmentation
         self.bad_values = [x + 300 * (x + 1) + 300 * 300 * (x + 1) for x in [0, 5, 10, 15, 255]]
         self.min_area = 50

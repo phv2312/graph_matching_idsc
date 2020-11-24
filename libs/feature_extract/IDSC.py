@@ -135,11 +135,7 @@ class IDSCDescriptor:
         # remove second dim
         contour_points = np.reshape(contour_points, (len(contour_points), 2))
         # sample n points
-        num_samples = len(contour_points) // 2
-        num_samples = max(1, num_samples)
-        num_samples = min(num_samples, self.max_contour_points)
-
-        #num_samples = 70 # fixed here
+        num_samples = self.max_contour_points# fixed here
         idx = np.linspace(0, len(contour_points) - 1, num=num_samples).astype(np.int)
 
         return contour_points[idx]
@@ -218,7 +214,7 @@ def matching(histo1, histo2, contours1, contours2, min_threshold=0.35):
     org_distance = calc_cost(histo1, histo2)
 
     scores, pair_ids, perm2s = [], [], []
-    first_ids2 = np.argsort(org_distance[0])[:8]
+    first_ids2 = np.argsort(org_distance[0])[:4]
     distances = []
     for first_id2 in first_ids2:
         perm2   = list(range(first_id2, n2)) + list(range(0, first_id2))
@@ -268,11 +264,13 @@ def calc_matching_distance(distance, pair_ids, penalty=0.3):
     return matching_cost
 
 if __name__ == '__main__':
-    im_path1 = "/home/kan/Desktop/cinnamon/active_learning/experiments/matching_with_idsc/output/processed_suneo3-processed_suneo4/source/s1.png"
-    im_path2 = "/home/kan/Desktop/cinnamon/active_learning/experiments/matching_with_idsc/output/processed_suneo3-processed_suneo4/target/t4.png"
+
+
+    im_path1 = "/home/kan/Desktop/cinnamon/active_learning/experiments/matching_with_idsc/output/nobita1-nobita2/source/s11.png"
+    im_path2 = "/home/kan/Desktop/cinnamon/active_learning/experiments/matching_with_idsc/output/nobita1-nobita2/target/t11.png"
 
     # swap
-    if True:
+    if False:
         im_tmp = im_path1
         im_path1 = im_path2
         im_path2 = im_tmp
@@ -284,7 +282,7 @@ if __name__ == '__main__':
     im2 = cv2.imread(im_path2)
     im_bin1 = to_binary(im_path1)
     im_bin2 = to_binary(im_path2)
-    idsc_descriptor = IDSCDescriptor(max_contour_points=100,
+    idsc_descriptor = IDSCDescriptor(max_contour_points=20,
                                      n_angle_bins=8,
                                      n_distance_bins=8)
 
@@ -315,11 +313,10 @@ if __name__ == '__main__':
     distance = s2t_distance
 
     matching_cost_s2t = calc_matching_distance(distance, pair_ids, 0.3)
-    matching_cost_t2s = calc_matching_distance(distance.T, pair_ids=[(t,s) for (s,t) in pair_ids], penalty=0.)
+    matching_cost_t2s = calc_matching_distance(distance.T, pair_ids=[(t,s) for (s,t) in pair_ids], penalty=0.3)
 
     print ('n matching point:', len(pair_ids))
     print ('matching cost between two shapes:', matching_cost_s2t, matching_cost_t2s)
-    print ('matching cost symetry:', float(np.mean([distance[s,t] for (s,t) in pair_ids])))
 
     # visualize
 
