@@ -266,7 +266,7 @@ def calc_matching_distance(distance, pair_ids, penalty=0.3):
 if __name__ == '__main__':
 
 
-    im_path1 = "/home/kan/Desktop/cinnamon/active_learning/experiments/matching_with_idsc/output/nobita1-nobita2/source/s11.png"
+    im_path1 = "/home/kan/Desktop/cinnamon/active_learning/experiments/matching_with_idsc/output/nobita1-nobita2/source/s13.png"
     im_path2 = "/home/kan/Desktop/cinnamon/active_learning/experiments/matching_with_idsc/output/nobita1-nobita2/target/t11.png"
 
     # swap
@@ -282,7 +282,7 @@ if __name__ == '__main__':
     im2 = cv2.imread(im_path2)
     im_bin1 = to_binary(im_path1)
     im_bin2 = to_binary(im_path2)
-    idsc_descriptor = IDSCDescriptor(max_contour_points=20,
+    idsc_descriptor = IDSCDescriptor(max_contour_points=50,
                                      n_angle_bins=8,
                                      n_distance_bins=8)
 
@@ -302,8 +302,8 @@ if __name__ == '__main__':
     debug_im = np.concatenate([im1, im2], axis=1)
     offset_x = w1
 
-    s2t_results = matching(histo1, histo2, contours1, contours2, min_threshold=0.25)
-    t2s_results = matching(histo2, histo1, contours2, contours1, min_threshold=0.25)
+    s2t_results = matching(histo1, histo2, contours1, contours2, min_threshold=0.35)
+    t2s_results = matching(histo2, histo1, contours2, contours1, min_threshold=0.35)
 
     s2t_pair, s2t_distance = s2t_results[0], s2t_results[-1]
     t2s_pair, t2s_distance = t2s_results[0], t2s_results[-1]
