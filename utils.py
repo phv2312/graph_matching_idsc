@@ -14,16 +14,12 @@ def calc_softmax(X, dim, alpha):
     out = x_e / np.sum(x_e, axis=dim, keepdims=True)
     return out
 
-def _calc_distance_single(f1, f2, min_matching_threshold, penalty):
+def _calc_distance_single(f1, f2, max_threshold, penalty):
     feats1, points1 = f1[:, :-2], f1[:, -2:]
     feats2, points2 = f2[:, :-2], f2[:, -2:]
 
-    pair_ids, _, _, _, _, dist_matrix, score = matching(feats1,
-                                                 feats2,
-                                                 points1,
-                                                 points2,
-                                                 min_threshold=min_matching_threshold)
-    return score, len(pair_ids)
+    pair_ids, distance, score = matching(feats1, feats2, penalty, max_thresh_dist=max_threshold)
+    return score/(1e-6+len(pair_ids)), len(pair_ids)
 
 class ComponentUtils:
     def __init__(self, max_contour_points=50, n_angle_bins=8, n_distance_bins=8):
@@ -177,14 +173,14 @@ class ComponentUtils:
 
         return K1, (K2, K2_min, K2_max)
 
-    def compare_feats(self, source_components, target_components, penalty=0.3, min_threshold_area=0.35):
+    def compare_feats(self, source_components, target_components, penalty=0.3, max_threshold=0.35):
         def _get_feature(c):
             feats, points = c['idsc']
             return np.concatenate([feats, points], axis=1)
 
         source_feats = np.array([_get_feature(c) for c in source_components], dtype=np.object)
         target_feats = np.array([_get_feature(c) for c in target_components], dtype=np.object)
-        custom_distance = partial(_calc_distance_single, min_matching_threshold=min_threshold_area, penalty=penalty)
+        custom_distance = partial(_calc_distance_single, max_threshold=max_threshold, penalty=penalty)
 
         all_ids = [(si,ti) for si in range(source_feats.shape[0]) for ti in range(target_feats.shape[0])]
 
@@ -204,14 +200,14 @@ class ComponentUtils:
         K1 = K[:,:,0].astype(np.float32) # distance
         K2 = K[:,:,1].astype(np.int32) # n_matching point
 
-        K3 = K2 / np.array([len(f) for f in source_feats]).reshape(-1, 1)
-        K4 = K2 / np.array([len(f) for f in target_feats]).reshape(1, -1)
+        # K3 = K2 / np.array([len(f) for f in source_feats]).reshape(-1, 1)
+        # K4 = K2 / np.array([len(f) for f in target_feats]).reshape(1, -1)
+        #
+        # K21 = np.stack([K3, K4], axis=-1)
+        # K2_max = np.max(K21, axis=-1)
+        # K2_min = np.min(K21, axis=-1)
 
-        K21 = np.stack([K3, K4], axis=-1)
-        K2_max = np.max(K21, axis=-1)
-        K2_min = np.min(K21, axis=-1)
-
-        return K1, (K2, K2_min, K2_max)
+        return K1, K2
 
 class ALUtils:
     def estimate_risk(self, K, labels, observed):

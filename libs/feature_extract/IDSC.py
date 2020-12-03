@@ -52,7 +52,7 @@ def calc_cost(histo1, histo2):
 """
 DPMatching Utils
 """
-def dp_matching_v2(A, penalty):
+def dp_matching(A, penalty):
     def MAT_GET(pMat, x, y, nRow):
         return pMat[y,x]
 
@@ -136,7 +136,61 @@ def dp_matching_v2(A, penalty):
         print ("Terminate without computing C,  T=%lf", T)
         return False
 
-    return C_dct, T
+    return C, C_dct, T
+
+def multi_dp_matching(A, penalty, n_start, n_search):
+    def ROUND(x):
+        return int(x + 0.5)
+
+    M, N = A.shape
+    A2 = np.zeros(shape=(M,2*N), dtype=np.float32)
+    A2[:, :N] = A
+    A2[:, N:] = A
+    bSucc = False
+
+    CC = np.zeros(shape=(N,M), dtype=np.int32)
+    id_best = -1
+    T_best = 4000 * N
+    n_start = min(N, n_start)
+
+    for iS in range(0, n_start):
+        id_start = ROUND(N*iS/float(n_start))
+        C, _, TT = dp_matching(A2[:, id_start:id_start+N], penalty)
+        CC[id_start] = C.copy()
+        if TT < T_best:
+            T_best = TT
+            id_best = id_start
+
+        for dS in range(1, n_search):
+            # forward
+            iS1 = id_start + dS
+            if iS1>N: iS1 -= N
+            C, _, TT = dp_matching(A2[:, iS1:iS1+N], penalty)
+            CC[iS1] = C.copy()
+            if TT < T_best:
+                T_best = TT
+                id_best = iS1
+
+            # backward
+            iS2 = id_start - dS
+            if iS2<0: iS2 += N
+            C, _, TT = dp_matching(A2[:, iS2:iS2+N], penalty)
+            CC[iS2] = C.copy()
+            if TT < T_best:
+                T_best = TT
+                id_best = iS2
+
+    if id_best < 0:
+        print ("\n\tId_best=%d !!!!!!!\n" % id_best)
+        return False
+
+    C = CC[id_best]
+    for ii in range(0, M):
+        if C[ii] < N:
+            C[ii] += id_best
+            if (C[ii] >= N): C[ii] -= N
+
+    return C, T_best
 
 """
 Main Discriptor
@@ -251,46 +305,24 @@ class IDSCDescriptor:
 
         return np.array(histogram)
 
-def matching(histo1, histo2, contours1, contours2, min_threshold=0.35):
-    n1, n2       = len(histo1), len(histo2)
-    org_distance = calc_cost(histo1, histo2)
+def matching(histo1, histo2, penalty=0.3, n_start=4, n_search=2, max_thresh_dist=np.inf):
+    distance = calc_cost(histo1, histo2)
+    C, score = multi_dp_matching(distance, n_start=n_start, n_search=n_search, penalty=penalty)
+    pair_ids = C2pair(C)
+    pair_ids = [(i1, i2) for i1, i2 in pair_ids if distance[i1, i2] < max_thresh_dist]
 
-    scores, pair_ids, perm2s = [], [], []
-    first_ids2 = np.argsort(org_distance[0])[:4]
-    distances = []
-    for first_id2 in first_ids2:
-        perm2   = list(range(first_id2, n2)) + list(range(0, first_id2))
-        perm2   = np.array(perm2)
-        histo2_ = histo2[perm2]
+    return pair_ids, distance, score
 
-        distance_           = calc_cost(histo1, histo2_)
-        pair_ids_, score = dp_matching_v2(distance_, penalty=0.3)
+def C2pair(C, unmatch_num=200):
+    C = np.array(C)
 
-        distances.append(distance_)
+    good_idxs = np.where(C != unmatch_num)[0]
+    source_idxs = np.arange(C.shape[0])[good_idxs]
+    target_idxs = C[good_idxs]
 
-        #
-        scores      += [score]
-        pair_ids    += [pair_ids_]
-        perm2s      += [perm2]
-
-    min_id2     = int(np.argmin(scores))
-    perm2       = perm2s[min_id2]
-    pair_ids    = pair_ids[min_id2]
-    score       = scores[min_id2]
-
-    # re-permute
-    new_pair_ids = []
-    for (org_si, ti) in pair_ids:
-        org_ti = perm2[ti]
-
-        if org_distance[org_si, org_ti] > min_threshold: continue
-        new_pair_ids += [(org_si, org_ti)]
-
-    return new_pair_ids, histo1, histo2, contours1, contours2, org_distance, score
+    return np.stack([source_idxs, target_idxs], axis=1)
 
 if __name__ == '__main__':
-
-
     im_path1 = "/home/kan/Desktop/cinnamon/active_learning/experiments/matching_with_idsc/output/nobita1-nobita2/source/s4.png"
     im_path2 = "/home/kan/Desktop/cinnamon/active_learning/experiments/matching_with_idsc/output/nobita1-nobita2/target/t4.png"
 
@@ -307,8 +339,12 @@ if __name__ == '__main__':
 
     histo1, contours1 = idsc_descriptor.describe(im_bin1)
     histo2, contours2 = idsc_descriptor.describe(im_bin2)
+    s2t_pair, distance, score = matching(histo1, histo2,
+                                         penalty=0.3, max_thresh_dist=0.45,
+                                         n_start=4, n_search=2)
+    print ('matching score:', score)
 
-    #
+    # visualize
     h1, w1 = im1.shape[:2]
     h2, w2 = im2.shape[:2]
 
@@ -321,13 +357,9 @@ if __name__ == '__main__':
     debug_im = np.concatenate([im1, im2], axis=1)
     offset_x = w1
 
-    s2t_results = matching(histo1, histo2, contours1, contours2, min_threshold=0.5)
-    s2t_pair, s2t_distance, s2t_score = s2t_results[0], s2t_results[-2], s2t_results[-1]
-    print ('matching score:', s2t_score / len(s2t_pair))
-
     for (i1, i2) in s2t_pair:
         _debug_im = debug_im.copy()
-        _d = s2t_distance[i1, i2]
+        _d = distance[i1, i2]
 
         p = contours1[i1]
         q = contours2[i2]

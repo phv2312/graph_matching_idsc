@@ -66,14 +66,12 @@ def matching_pair(source_im_path, target_im_path, source_mode, target_mode):
     s_time = time.time()
 
     dist_mat, matching_info = component_utils.compare_feats(target_components, source_components,
-                                                penalty=0.3, min_threshold_area=0.35)
+                                                            penalty=0.3, max_threshold=0.45)
     if CONSENSUS:
-
         dist_mat_inv, matching_info_inv = component_utils.compare_feats(source_components, target_components,
-                                                                        penalty=0.3, min_threshold_area=0.35)
+                                                                        penalty=0.3, max_threshold=0.35)
         dist_mat = np.sqrt(dist_mat * dist_mat_inv.T)
 
-    #matching_mat, matching_min, matching_max = matching_info
     max_src_ids = np.argsort(dist_mat, 1) # for each target find the corresponding source
     print ('matching take:', time.time() - s_time)
 
