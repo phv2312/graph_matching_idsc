@@ -2,11 +2,9 @@ import numpy as np
 import cv2
 from skimage import measure
 from libs.gaussianfield import gaussianfield
-from libs.feature_extract.IDSC import IDSCDescriptor, matching, calc_matching_distance
-from scipy.spatial.distance import cdist
+from libs.feature_extract.IDSC import IDSCDescriptor, matching
 from functools import partial
 import multiprocessing
-import time
 
 MULTI_PROCESS = True
 
@@ -20,16 +18,12 @@ def _calc_distance_single(f1, f2, min_matching_threshold, penalty):
     feats1, points1 = f1[:, :-2], f1[:, -2:]
     feats2, points2 = f2[:, :-2], f2[:, -2:]
 
-    pair_ids, _, _, _, _, dist_matrix = matching(feats1,
+    pair_ids, _, _, _, _, dist_matrix, score = matching(feats1,
                                                  feats2,
                                                  points1,
                                                  points2,
                                                  min_threshold=min_matching_threshold)
-
-    matching_cost_s2t = calc_matching_distance(dist_matrix, pair_ids, penalty=penalty)
-
-    return matching_cost_s2t, len(pair_ids)
-
+    return score, len(pair_ids)
 
 class ComponentUtils:
     def __init__(self, max_contour_points=50, n_angle_bins=8, n_distance_bins=8):

@@ -40,7 +40,7 @@ def calc_cost(histo1, histo2):
         nonzero_ids = np.nonzero(add_)[0]
         cost = sub_[nonzero_ids] / add_[nonzero_ids]
 
-        return 0.5 * np.sum(cost)
+        return 0.5 * np.sqrt(np.sum(cost))
 
     n1, n2 = len(histo1), len(histo2)
     dists = cdist(histo1, histo2, metric=lambda e1, e2: shape_context_cost(e1, e2))
@@ -52,49 +52,91 @@ def calc_cost(histo1, histo2):
 """
 DPMatching Utils
 """
-def road_to_pair(road):
-    h, w = road.shape[:2]
-    pair = []
+def dp_matching_v2(A, penalty):
+    def MAT_GET(pMat, x, y, nRow):
+        return pMat[y,x]
 
-    i, j = h-1, w-1
-    while(i >= 0 and j>=0):
-        direction = road[i,j]
-        ofs_i, ofs_j = 0, 0
-        if direction == 1.:
-            pair += [(i,j)]
-            ofs_i, ofs_j = -1, -1
-        elif direction == 2.:
-            ofs_i, ofs_j = 0, -1
-        elif direction == 0:
-            ofs_i, ofs_j = -1, 0
+    def MAT_SET(pMat, x, y, val, nRow):
+        pMat[y,x] = val
 
-        i += ofs_i
-        j += ofs_j
+    uplimit = 100000000
+    M, N = A.shape[:2]
+    D = np.zeros(shape=(M, N), dtype=np.float32)
+    links = np.ones(shape=(M, N), dtype=np.int32)
+    C = np.zeros(shape=(M,), dtype=np.int32)
 
-    # the first pair is assumed to be matched correctly.
-    return [(0,0)] + pair
+    dTmp = A[0, 0]
+    if dTmp < penalty:
+        D[0, 0] = dTmp
+        links[0, 0] = 1
+    else:
+        D[0, 0] = penalty
+        links[0, 0] = 2
 
-def dp_matching(d):
-    h, w = d.shape
-    g = np.zeros((h, w))
-    road = np.copy(g)
-    g[0, 0] = d[0, 0]
+    for pt2 in range(1, N):
+        dTmp1 = MAT_GET(A, pt2, 0, M) + pt2 * penalty
+        dTmp3 = MAT_GET(D, pt2-1,0,M) + penalty
+        if dTmp1 < dTmp3:
+            MAT_SET(D, pt2, 0, dTmp1, M)
+            MAT_SET(links, pt2, 0, 1, M)
+        else:
+            MAT_SET(D, pt2, 0, dTmp3, M)
+            MAT_SET(links, pt2, 0, 3, M)
 
-    for t in range(1, w):
-        g[0, t] = g[0, t - 1] + d[0, t]
-    for n in range(1, h):
-        g[n, 0] = g[n - 1, 0] + d[n, 0]
+    for pt1 in range(1, M):
+        dTmp1 = MAT_GET(A, 0, pt1, M) + pt1 * penalty
+        dTmp2 = MAT_GET(D, 0, pt1 - 1, M) + penalty
+        if dTmp1 < dTmp2:
+            MAT_SET(D, 0, pt1, dTmp1, M)
+            MAT_SET(links, 0, pt1, 1, M)
+        else:
+            MAT_SET(D, 0, pt1, dTmp2, M)
+            MAT_SET(links, 0, pt1, 2, M)
 
-    for i in range(1, h):
-        for j in range(1, w):
-            temp = [g[i - 1, j] + d[i, j], g[i - 1, j - 1] + d[i, j] * 2, g[i, j - 1] + d[i, j]]
-            step = int(np.argmin(np.array(temp)))
-            number = temp[step]
-            g[i, j] = number
-            road[i, j] = step
+    for pt1 in range(1, M):
+        for pt2 in range(1, N):
+            dTmp1 = MAT_GET(D, pt2 - 1, pt1 - 1, M) + MAT_GET(A, pt2, pt1, M)
+            dTmp2 = MAT_GET(D, pt2, pt1 - 1, M) + penalty
+            dTmp3 = MAT_GET(D, pt2 - 1, pt1, M) + penalty
 
-    score = float(g[h - 1, w - 1])
-    return score, road_to_pair(road)
+            if dTmp1<=dTmp2 and dTmp1<=dTmp3:
+                MAT_SET(D, pt2, pt1, dTmp1, M)
+                MAT_SET(links, pt2, pt1, 1, M)
+            elif dTmp2<=dTmp3:
+                MAT_SET(D, pt2, pt1, dTmp2, M)
+                MAT_SET(links, pt2, pt1, 2, M)
+            else:
+                MAT_SET(D, pt2, pt1, dTmp3, M)
+                MAT_SET(links, pt2, pt1, 3, M)
+
+    OCL = 4 * N
+    C_dct = []
+    for pt1 in range(0, M):
+        C[pt1] = OCL
+
+    T = MAT_GET(D, N-1, M -1, M)
+    if T < uplimit:
+        pt1 = M - 1
+        pt2 = N - 1
+        while (pt1 >= 0 and pt2 >= 0):
+            link = MAT_GET(links, pt2, pt1, M)
+            if link == 1:
+                C[pt1] = pt2
+                C_dct += [(pt1, pt2)]
+                pt1 -= 1
+                pt2 -= 1
+            elif link == 2:
+                pt1 -= 1
+            elif link == 3:
+                pt2 -= 1
+            else:
+                print ("links[pt1,pt2]=%d, FAILED!!" % MAT_GET(links,pt2,pt1,M))
+                return False
+    else:
+        print ("Terminate without computing C,  T=%lf", T)
+        return False
+
+    return C_dct, T
 
 """
 Main Discriptor
@@ -108,9 +150,12 @@ class IDSCDescriptor:
         self.distance = sp.spatial.distance.euclidean
         self.shortest_path = floyd_warshall
 
-    def describe(self, binary):
+    def describe(self, binary, given_contour_points=None):
         self.max_distance = self.distance((0, 0), binary.shape)
-        contour_points = self._sample_contour_points(binary, self.max_contour_points)
+        if given_contour_points is None:
+            contour_points = self._sample_contour_points(binary, self.max_contour_points)
+        else:
+            contour_points = given_contour_points
 
         if len(contour_points) == 0:
             print('contours missing in IDSC')
@@ -126,10 +171,7 @@ class IDSCDescriptor:
         return x, y
 
     def _sample_contour_points(self, binary, n):
-        if cv2.__version__ == '3.1.0':
-            ct, img = cv2.findContours(binary, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)[1:]
-        else:
-            ct, img = cv2.findContours(binary, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+        ct, img = cv2.findContours(binary, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)[1:]
 
         contour_points = max(ct, key=len)
         # remove second dim
@@ -222,8 +264,8 @@ def matching(histo1, histo2, contours1, contours2, min_threshold=0.35):
         histo2_ = histo2[perm2]
 
         distance_           = calc_cost(histo1, histo2_)
+        pair_ids_, score = dp_matching_v2(distance_, penalty=0.3)
 
-        score, pair_ids_    = dp_matching(distance_)
         distances.append(distance_)
 
         #
@@ -234,6 +276,7 @@ def matching(histo1, histo2, contours1, contours2, min_threshold=0.35):
     min_id2     = int(np.argmin(scores))
     perm2       = perm2s[min_id2]
     pair_ids    = pair_ids[min_id2]
+    score       = scores[min_id2]
 
     # re-permute
     new_pair_ids = []
@@ -243,45 +286,21 @@ def matching(histo1, histo2, contours1, contours2, min_threshold=0.35):
         if org_distance[org_si, org_ti] > min_threshold: continue
         new_pair_ids += [(org_si, org_ti)]
 
-    # note that histo2 & contours2 may be different from the initialize.
-    return new_pair_ids, histo1, histo2, contours1, contours2, org_distance
-
-def calc_matching_distance(distance, pair_ids, penalty=0.3):
-    #
-    n_s, n_t = distance.shape[:2]
-    matching_cost = 0.
-
-    pair_ids_dict = {s:t for s,t in pair_ids}
-
-    for s_i in range(n_s):
-        if s_i in pair_ids_dict:
-            t_i = pair_ids_dict[s_i]
-            matching_cost += distance[s_i, t_i]
-        else:
-            matching_cost += penalty
-
-    matching_cost /= (1e-6 + len(pair_ids_dict))
-    return matching_cost
+    return new_pair_ids, histo1, histo2, contours1, contours2, org_distance, score
 
 if __name__ == '__main__':
 
 
-    im_path1 = "/home/kan/Desktop/cinnamon/active_learning/experiments/matching_with_idsc/output/nobita1-nobita2/source/s13.png"
-    im_path2 = "/home/kan/Desktop/cinnamon/active_learning/experiments/matching_with_idsc/output/nobita1-nobita2/target/t11.png"
-
-    # swap
-    if False:
-        im_tmp = im_path1
-        im_path1 = im_path2
-        im_path2 = im_tmp
+    im_path1 = "/home/kan/Desktop/cinnamon/active_learning/experiments/matching_with_idsc/output/nobita1-nobita2/source/s4.png"
+    im_path2 = "/home/kan/Desktop/cinnamon/active_learning/experiments/matching_with_idsc/output/nobita1-nobita2/target/t4.png"
 
     print (os.path.basename(im_path1), os.path.basename(im_path2))
-
 
     im1 = cv2.imread(im_path1)
     im2 = cv2.imread(im_path2)
     im_bin1 = to_binary(im_path1)
     im_bin2 = to_binary(im_path2)
+
     idsc_descriptor = IDSCDescriptor(max_contour_points=50,
                                      n_angle_bins=8,
                                      n_distance_bins=8)
@@ -302,27 +321,13 @@ if __name__ == '__main__':
     debug_im = np.concatenate([im1, im2], axis=1)
     offset_x = w1
 
-    s2t_results = matching(histo1, histo2, contours1, contours2, min_threshold=0.35)
-    t2s_results = matching(histo2, histo1, contours2, contours1, min_threshold=0.35)
+    s2t_results = matching(histo1, histo2, contours1, contours2, min_threshold=0.5)
+    s2t_pair, s2t_distance, s2t_score = s2t_results[0], s2t_results[-2], s2t_results[-1]
+    print ('matching score:', s2t_score / len(s2t_pair))
 
-    s2t_pair, s2t_distance = s2t_results[0], s2t_results[-1]
-    t2s_pair, t2s_distance = t2s_results[0], t2s_results[-1]
-    s2t_pair_inv = [(s, t) for (t, s) in t2s_pair]
-    pair_ids = list(set(s2t_pair + s2t_pair_inv))
-    pair_ids = list(sorted(pair_ids, key=lambda e: e[0]))[::-1]
-    distance = s2t_distance
-
-    matching_cost_s2t = calc_matching_distance(distance, pair_ids, 0.3)
-    matching_cost_t2s = calc_matching_distance(distance.T, pair_ids=[(t,s) for (s,t) in pair_ids], penalty=0.3)
-
-    print ('n matching point:', len(pair_ids))
-    print ('matching cost between two shapes:', matching_cost_s2t, matching_cost_t2s)
-
-    # visualize
-
-    for (i1, i2) in pair_ids:
+    for (i1, i2) in s2t_pair:
         _debug_im = debug_im.copy()
-        _d = distance[i1, i2]
+        _d = s2t_distance[i1, i2]
 
         p = contours1[i1]
         q = contours2[i2]
@@ -337,4 +342,3 @@ if __name__ == '__main__':
         print ('dist btw %d-%d is %.3f:', (i1, i2, _d))
         plt.imshow(_debug_im)
         plt.show()
-        cv2.imwrite("%d_%d.png" % (i1, i2), _debug_im)

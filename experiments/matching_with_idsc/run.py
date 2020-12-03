@@ -81,7 +81,6 @@ def matching_pair(source_im_path, target_im_path, source_mode, target_mode):
     t2s_candidates = find_target_candidate(target_components, source_components, threshold_distance=150)
     print ('source_component:', len(source_components))
     print ('target_component:', len(target_components))
-    #print ('matching_min:', matching_min.shape)
 
     #
     for c_id, c in enumerate(target_components):
