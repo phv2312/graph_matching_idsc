@@ -10,6 +10,8 @@ import matplotlib.pyplot as plt
 """
 Image Utils
 """
+
+
 def to_binary(im, thresh=128):
     if type(im) is str:
         im = cv2.imread(im, 0)
@@ -19,9 +21,12 @@ def to_binary(im, thresh=128):
 
 #############
 
+
 """
 Cost Utils
 """
+
+
 def calc_cost(histo1, histo2):
     def shape_context_cost(nh1, nh2):
         '''
@@ -52,6 +57,8 @@ def calc_cost(histo1, histo2):
 """
 DPMatching Utils
 """
+
+
 def dp_matching(A, penalty):
     def MAT_GET(pMat, x, y, nRow):
         return pMat[y,x]
@@ -138,6 +145,7 @@ def dp_matching(A, penalty):
 
     return C, C_dct, T
 
+
 def multi_dp_matching(A, penalty, n_start, n_search):
     def ROUND(x):
         return int(x + 0.5)
@@ -195,6 +203,8 @@ def multi_dp_matching(A, penalty, n_start, n_search):
 """
 Main Discriptor
 """
+
+
 class IDSCDescriptor:
     def __init__(self, max_contour_points=100, n_angle_bins=8, n_distance_bins=8):
         self.max_contour_points = max_contour_points
@@ -203,6 +213,8 @@ class IDSCDescriptor:
 
         self.distance = sp.spatial.distance.euclidean
         self.shortest_path = floyd_warshall
+
+        self.max_distance = None
 
     def describe(self, binary, given_contour_points=None):
         self.max_distance = self.distance((0, 0), binary.shape)
@@ -225,7 +237,7 @@ class IDSCDescriptor:
         return x, y
 
     def _sample_contour_points(self, binary, n):
-        ct, img = cv2.findContours(binary, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)[1:]
+        ct, img = cv2.findContours(binary, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
 
         contour_points = max(ct, key=len)
         # remove second dim
@@ -305,6 +317,7 @@ class IDSCDescriptor:
 
         return np.array(histogram)
 
+
 def matching(histo1, histo2, penalty=0.3, n_start=4, n_search=2, max_thresh_dist=np.inf):
     distance = calc_cost(histo1, histo2)
     C, score = multi_dp_matching(distance, n_start=n_start, n_search=n_search, penalty=penalty)
@@ -312,6 +325,7 @@ def matching(histo1, histo2, penalty=0.3, n_start=4, n_search=2, max_thresh_dist
     pair_ids = [(i1, i2) for i1, i2 in pair_ids if distance[i1, i2] < max_thresh_dist]
 
     return pair_ids, distance, score
+
 
 def C2pair(C, unmatch_num=200):
     C = np.array(C)
@@ -322,9 +336,10 @@ def C2pair(C, unmatch_num=200):
 
     return np.stack([source_idxs, target_idxs], axis=1)
 
+
 if __name__ == '__main__':
-    im_path1 = "/home/kan/Desktop/cinnamon/active_learning/experiments/matching_with_idsc/output/nobita1-nobita2/source/s4.png"
-    im_path2 = "/home/kan/Desktop/cinnamon/active_learning/experiments/matching_with_idsc/output/nobita1-nobita2/target/t4.png"
+    im_path1 = "_"
+    im_path2 = "_"
 
     print (os.path.basename(im_path1), os.path.basename(im_path2))
 
