@@ -4,6 +4,7 @@
 
 - Graph matching approach for line-art colorization, refer from: https://ieeexplore.ieee.org/abstract/document/9412507
 - Many-to-one constraint, greedy algorithm instead of hungarian in the original paper.
+- We use IDSC instead of deep feature embedding.
 
 ## Entry point
 
